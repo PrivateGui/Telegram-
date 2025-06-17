@@ -144,7 +144,7 @@ async function handleFileUpload(update) {
   }
 
   const fileData = await axios.get(`${BOT_API}/getFile?file_id=${file.file_id}`);
-  const fileUrl = `https://api.telegram.org/file/bot${TOKEN}/${fileData.data.result.file_path}`;
+  const fileUrl = `https://tapi.bale.ai/file/bot${TOKEN}/${fileData.data.result.file_path}`;
   const fileExt = path.extname(fileData.data.result.file_path);
   filePath = path.join(uploadDir, `${file.file_id}${fileExt}`);
   
