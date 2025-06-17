@@ -1,22 +1,44 @@
 {
-  "name": "telegram-chatbot-axios",
+  "name": "telegram-uploader-bot",
   "version": "1.0.0",
-  "description": "A Telegram chatbot using axios for direct API calls with chat memory and image support",
-  "main": "index.js",
+  "description": "A comprehensive Telegram bot for file uploading and sharing with admin controls",
+  "main": "bot.js",
   "scripts": {
-    "start": "node index.js",
-    "start:pm2": "pm2 start index.js --name chatbot-axios",
-    "stop:pm2": "pm2 stop chatbot-axios",
-    "restart:pm2": "pm2 restart chatbot-axios",
-    "logs:pm2": "pm2 logs chatbot-axios"
+    "start": "node bot.js",
+    "dev": "nodemon bot.js",
+    "pm2:start": "pm2 start bot.js --name telegram-uploader-bot",
+    "pm2:stop": "pm2 stop telegram-uploader-bot",
+    "pm2:restart": "pm2 restart telegram-uploader-bot",
+    "pm2:delete": "pm2 delete telegram-uploader-bot",
+    "pm2:logs": "pm2 logs telegram-uploader-bot"
   },
+  "keywords": [
+    "telegram",
+    "bot",
+    "uploader",
+    "file-sharing",
+    "nodejs",
+    "mongodb"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
-    "axios": "^1.7.2",
-    "base64-js": "^1.5.1"
+    "axios": "^1.6.0",
+    "form-data": "^4.0.0",
+    "mongodb": "^6.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=16.0.0"
   },
-  "author": "Your Name",
-  "license": "MIT"
+  "repository": {
+    "type": "git",
+    "url": "your-repository-url"
+  },
+  "bugs": {
+    "url": "your-repository-url/issues"
+  },
+  "homepage": "your-repository-url#readme"
 }
