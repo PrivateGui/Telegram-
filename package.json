@@ -1,0 +1,22 @@
+{
+  "name": "telegram-chatbot-axios",
+  "version": "1.0.0",
+  "description": "A Telegram chatbot using axios for direct API calls with chat memory and image support",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "start:pm2": "pm2 start index.js --name chatbot-axios",
+    "stop:pm2": "pm2 stop chatbot-axios",
+    "restart:pm2": "pm2 restart chatbot-axios",
+    "logs:pm2": "pm2 logs chatbot-axios"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "base64-js": "^1.5.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "Your Name",
+  "license": "MIT"
+}
