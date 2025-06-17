@@ -1,44 +1,17 @@
 {
-  "name": "telegram-uploader-bot",
+  "name": "telegram-bot",
   "version": "1.0.0",
-  "description": "A comprehensive Telegram bot for file uploading and sharing with admin controls",
+  "description": "Telegram bot using axios, redis, and file handling",
   "main": "bot.js",
   "scripts": {
-    "start": "node bot.js",
-    "dev": "nodemon bot.js",
-    "pm2:start": "pm2 start bot.js --name telegram-uploader-bot",
-    "pm2:stop": "pm2 stop telegram-uploader-bot",
-    "pm2:restart": "pm2 restart telegram-uploader-bot",
-    "pm2:delete": "pm2 delete telegram-uploader-bot",
-    "pm2:logs": "pm2 logs telegram-uploader-bot"
+    "start": "node bot.js"
   },
-  "keywords": [
-    "telegram",
-    "bot",
-    "uploader",
-    "file-sharing",
-    "nodejs",
-    "mongodb"
-  ],
-  "author": "Your Name",
-  "license": "MIT",
   "dependencies": {
     "axios": "^1.6.0",
     "form-data": "^4.0.0",
-    "mongodb": "^6.3.0"
+    "redis": "^4.6.7"
   },
-  "devDependencies": {
-    "nodemon": "^3.0.1"
-  },
-  "engines": {
-    "node": ">=16.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "your-repository-url"
-  },
-  "bugs": {
-    "url": "your-repository-url/issues"
-  },
-  "homepage": "your-repository-url#readme"
+  "type": "commonjs",
+  "author": "",
+  "license": "MIT"
 }
