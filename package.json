@@ -1,17 +1,17 @@
 {
-  "name": "telegram-bot",
+  "name": "telegram-uploader-bot",
   "version": "1.0.0",
-  "description": "Telegram bot using axios, redis, and file handling",
+  "description": "A Node.js Telegram uploader bot with Redis",
   "main": "bot.js",
   "scripts": {
     "start": "node bot.js"
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "form-data": "^4.0.0",
-    "redis": "^4.6.7"
+    "axios": "^1.7.2",
+    "redis": "^4.6.5",
+    "form-data": "^4.0.0"
   },
-  "type": "commonjs",
-  "author": "",
-  "license": "MIT"
+  "engines": {
+    "node": ">=14.0.0"
+  }
 }
