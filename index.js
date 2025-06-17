@@ -2,7 +2,7 @@ const axios = require('axios');
 const base64 = require('base64-js');
 const fs = require('fs').promises;
 
-const TELEGRAM_TOKEN = '7151280338:AAFOCooejwLWK8FHxadytsKBespil1OhXh8'; // Replace with your Telegram bot token
+const TELEGRAM_TOKEN = '1183415743:FyWO37jmdjVC9rHBRqqkbDOZpTCvYHd6O81UhRa1'; // Replace with your Telegram bot token
 const TELEGRAM_API = `https://tapi.bale.ai/bot${TELEGRAM_TOKEN}`;
 const API_URL = 'https://api.llm7.io/v1/chat/completions';
 const API_HEADERS = {
