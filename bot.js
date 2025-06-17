@@ -3,44 +3,63 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const FormData = require('form-data');
-const { MongoClient } = require('mongodb');
+const redis = require('redis');
 
 // Configuration
 const BOT_TOKEN = '1183415743:FyWO37jmdjVC9rHBRqqkbDOZpTCvYHd6O81UhRa1';
-const MONGO_URI = 'mongodb://mongo:CTLuAdrCxdkACgAgDzIFEsuthELNIUBi@maglev.proxy.rlwy.net:40273';
+const REDIS_URL = 'redis://default:IWbworXhfHfTLrSKJUfpLGhAWOeCPVpg@tramway.proxy.rlwy.net:56978';
 const BASE_URL = `https://tapi.bale.ai/bot${BOT_TOKEN}`;
 const ADMIN_USERNAMES = [
-    'zonercm',
+    'admin1',
     'admin2',
     'admin3'
     // Add more admin usernames here
 ];
 
-let db;
+let redisClient;
 let bot_info;
 let offset = 0;
 
-// Initialize MongoDB connection
-async function connectDB() {
+// Initialize Redis connection
+async function connectRedis() {
     try {
-        const client = new MongoClient(MONGO_URI);
-        await client.connect();
-        db = client.db('telegrambot');
-        console.log('Connected to MongoDB');
+        redisClient = redis.createClient({
+            url: REDIS_URL,
+            retry_strategy: (options) => {
+                if (options.error && options.error.code === 'ECONNREFUSED') {
+                    console.error('Redis server connection refused');
+                }
+                if (options.total_retry_time > 1000 * 60 * 60) {
+                    console.error('Redis retry time exhausted');
+                    return new Error('Retry time exhausted');
+                }
+                if (options.attempt > 10) {
+                    return undefined;
+                }
+                return Math.min(options.attempt * 100, 3000);
+            }
+        });
+
+        redisClient.on('error', (err) => {
+            console.error('Redis Client Error:', err);
+        });
+
+        redisClient.on('connect', () => {
+            console.log('Connected to Redis');
+        });
+
+        redisClient.on('ready', () => {
+            console.log('Redis client ready');
+        });
+
+        await redisClient.connect();
         
-        // Create collections if they don't exist
-        await db.createCollection('files');
-        await db.createCollection('users');
-        await db.createCollection('messages');
-        await db.createCollection('stats');
-        
-        // Create indexes for better performance
-        await db.collection('files').createIndex({ fileId: 1 });
-        await db.collection('users').createIndex({ userId: 1 });
-        await db.collection('messages').createIndex({ messageId: 1 });
+        // Test connection
+        await redisClient.ping();
+        console.log('✅ Redis connection successful');
         
     } catch (error) {
-        console.error('MongoDB connection error:', error);
+        console.error('Redis connection error:', error);
         process.exit(1);
     }
 }
@@ -154,23 +173,24 @@ function formatDate(date) {
     return new Date(date).toLocaleString();
 }
 
-// Database operations
+// Redis operations
 async function saveUser(user) {
     try {
-        await db.collection('users').updateOne(
-            { userId: user.id },
-            { 
-                $set: {
-                    userId: user.id,
-                    username: user.username,
-                    firstName: user.first_name,
-                    lastName: user.last_name,
-                    lastSeen: new Date(),
-                    isAdmin: isAdmin(user.username)
-                }
-            },
-            { upsert: true }
-        );
+        const userData = {
+            userId: user.id,
+            username: user.username || '',
+            firstName: user.first_name || '',
+            lastName: user.last_name || '',
+            lastSeen: new Date().toISOString(),
+            isAdmin: isAdmin(user.username)
+        };
+        
+        await redisClient.hSet(`user:${user.id}`, userData);
+        await redisClient.sAdd('users:all', user.id.toString());
+        
+        // Update user count
+        await redisClient.sCard('users:all');
+        
     } catch (error) {
         console.error('Error saving user:', error);
     }
@@ -178,7 +198,27 @@ async function saveUser(user) {
 
 async function saveFile(fileData) {
     try {
-        await db.collection('files').insertOne(fileData);
+        const fileKey = `file:${fileData.fileId}`;
+        
+        // Convert dates to ISO strings for Redis storage
+        const redisData = {
+            ...fileData,
+            uploadDate: fileData.uploadDate.toISOString()
+        };
+        
+        await redisClient.hSet(fileKey, redisData);
+        await redisClient.sAdd('files:all', fileData.fileId);
+        
+        // Add to recent files (sorted set with timestamp)
+        const timestamp = Date.now();
+        await redisClient.zAdd('files:recent', {
+            score: timestamp,
+            value: fileData.fileId
+        });
+        
+        // Set expiration for file (optional - 30 days)
+        await redisClient.expire(fileKey, 30 * 24 * 60 * 60);
+        
         return fileData.fileId;
     } catch (error) {
         console.error('Error saving file:', error);
@@ -188,7 +228,19 @@ async function saveFile(fileData) {
 
 async function getFileById(fileId) {
     try {
-        return await db.collection('files').findOne({ fileId: fileId });
+        const fileData = await redisClient.hGetAll(`file:${fileId}`);
+        
+        if (Object.keys(fileData).length === 0) {
+            return null;
+        }
+        
+        // Convert back to proper types
+        return {
+            ...fileData,
+            downloads: parseInt(fileData.downloads) || 0,
+            fileSize: parseInt(fileData.fileSize) || 0,
+            uploadDate: new Date(fileData.uploadDate)
+        };
     } catch (error) {
         console.error('Error getting file:', error);
         return null;
@@ -197,7 +249,18 @@ async function getFileById(fileId) {
 
 async function getAllFiles() {
     try {
-        return await db.collection('files').find({}).sort({ uploadDate: -1 }).toArray();
+        // Get files sorted by recent (newest first)
+        const fileIds = await redisClient.zRevRange('files:recent', 0, -1);
+        const files = [];
+        
+        for (const fileId of fileIds) {
+            const file = await getFileById(fileId);
+            if (file) {
+                files.push(file);
+            }
+        }
+        
+        return files;
     } catch (error) {
         console.error('Error getting all files:', error);
         return [];
@@ -206,7 +269,9 @@ async function getAllFiles() {
 
 async function deleteFile(fileId) {
     try {
-        await db.collection('files').deleteOne({ fileId: fileId });
+        await redisClient.del(`file:${fileId}`);
+        await redisClient.sRem('files:all', fileId);
+        await redisClient.zRem('files:recent', fileId);
         return true;
     } catch (error) {
         console.error('Error deleting file:', error);
@@ -214,24 +279,68 @@ async function deleteFile(fileId) {
     }
 }
 
+async function incrementDownloads(fileId) {
+    try {
+        await redisClient.hIncrBy(`file:${fileId}`, 'downloads', 1);
+        
+        // Update daily stats
+        const today = new Date().toISOString().split('T')[0];
+        await redisClient.incr(`stats:downloads:${today}`);
+        await redisClient.incr('stats:downloads:total');
+        
+    } catch (error) {
+        console.error('Error incrementing downloads:', error);
+    }
+}
+
 async function getStats() {
     try {
-        const totalFiles = await db.collection('files').countDocuments();
-        const totalUsers = await db.collection('users').countDocuments();
-        const recentFiles = await db.collection('files').find({
-            uploadDate: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-        }).countDocuments();
+        const totalFiles = await redisClient.sCard('files:all');
+        const totalUsers = await redisClient.sCard('users:all');
         
-        return { totalFiles, totalUsers, recentFiles };
+        // Recent files (last 24 hours)
+        const yesterday = Date.now() - (24 * 60 * 60 * 1000);
+        const recentFiles = await redisClient.zCount('files:recent', yesterday, '+inf');
+        
+        // Total downloads
+        const totalDownloads = await redisClient.get('stats:downloads:total') || 0;
+        
+        // Today's downloads
+        const today = new Date().toISOString().split('T')[0];
+        const todayDownloads = await redisClient.get(`stats:downloads:${today}`) || 0;
+        
+        return { 
+            totalFiles, 
+            totalUsers, 
+            recentFiles, 
+            totalDownloads: parseInt(totalDownloads),
+            todayDownloads: parseInt(todayDownloads)
+        };
     } catch (error) {
         console.error('Error getting stats:', error);
-        return { totalFiles: 0, totalUsers: 0, recentFiles: 0 };
+        return { totalFiles: 0, totalUsers: 0, recentFiles: 0, totalDownloads: 0, todayDownloads: 0 };
     }
 }
 
 async function getAllUsers() {
     try {
-        return await db.collection('users').find({}).toArray();
+        const userIds = await redisClient.sMembers('users:all');
+        const users = [];
+        
+        for (const userId of userIds) {
+            const userData = await redisClient.hGetAll(`user:${userId}`);
+            if (Object.keys(userData).length > 0) {
+                users.push({
+                    ...userData,
+                    userId: parseInt(userData.userId),
+                    lastSeen: new Date(userData.lastSeen),
+                    isAdmin: userData.isAdmin === 'true'
+                });
+            }
+        }
+        
+        // Sort by last seen (most recent first)
+        return users.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen));
     } catch (error) {
         console.error('Error getting users:', error);
         return [];
@@ -252,10 +361,7 @@ async function handleStart(chatId, userId, username, messageId) {
         }
         
         // Update download count
-        await db.collection('files').updateOne(
-            { fileId: fileId },
-            { $inc: { downloads: 1 } }
-        );
+        await incrementDownloads(fileId);
         
         // Send the file based on type
         if (file.type === 'text') {
@@ -266,7 +372,8 @@ async function handleStart(chatId, userId, username, messageId) {
             await sendDocument(chatId, file.telegramFileId, file.caption || '');
         }
         
-        await sendMessage(chatId, `✅ File: <b>${file.fileName}</b>\n📊 Downloads: ${file.downloads + 1}\n📅 Uploaded: ${formatDate(file.uploadDate)}`);
+        const updatedFile = await getFileById(fileId);
+        await sendMessage(chatId, `✅ File: <b>${file.fileName}</b>\n📊 Downloads: ${updatedFile.downloads}\n📅 Uploaded: ${formatDate(file.uploadDate)}`);
         return;
     }
     
@@ -447,7 +554,9 @@ async function handleStats(chatId, username) {
         `📁 Total Files: ${stats.totalFiles}\n` +
         `👥 Total Users: ${stats.totalUsers}\n` +
         `📈 Files Uploaded Today: ${stats.recentFiles}\n` +
-        `🤖 Bot Uptime: ${process.uptime().toFixed(0)} seconds\n` +
+        `📥 Total Downloads: ${stats.totalDownloads}\n` +
+        `📊 Today's Downloads: ${stats.todayDownloads}\n` +
+        `🤖 Bot Uptime: ${Math.floor(process.uptime())} seconds\n` +
         `📅 Generated: ${formatDate(new Date())}`;
     
     await sendMessage(chatId, message);
@@ -585,10 +694,39 @@ async function handleAbout(chatId) {
         `• Download statistics\n` +
         `• User management\n` +
         `• Broadcasting system\n\n` +
-        `🔧 Built with Node.js and MongoDB\n` +
+        `🔧 Built with Node.js and Redis\n` +
         `💡 Powered by Telegram Bot API`;
     
     await sendMessage(chatId, aboutMessage);
+}
+
+// Cache management commands (bonus feature for Redis)
+async function handleClearCache(chatId, username) {
+    if (!isAdmin(username)) {
+        await sendMessage(chatId, '❌ You are not authorized to clear cache.');
+        return;
+    }
+    
+    try {
+        // Clear expired file entries
+        const fileIds = await redisClient.sMembers('files:all');
+        let expiredCount = 0;
+        
+        for (const fileId of fileIds) {
+            const exists = await redisClient.exists(`file:${fileId}`);
+            if (!exists) {
+                await redisClient.sRem('files:all', fileId);
+                await redisClient.zRem('files:recent', fileId);
+                expiredCount++;
+            }
+        }
+        
+        await sendMessage(chatId, `🧹 Cache cleaned! Removed ${expiredCount} expired entries.`);
+        
+    } catch (error) {
+        console.error('Error clearing cache:', error);
+        await sendMessage(chatId, '❌ Error clearing cache.');
+    }
 }
 
 // Main message processor
@@ -598,7 +736,7 @@ async function processMessage(message) {
     const username = message.from.username;
     const text = message.text;
     
-    // Save user to database
+    // Save user to Redis
     await saveUser(message.from);
     
     // Handle commands
@@ -622,6 +760,8 @@ async function processMessage(message) {
         } else if (text.startsWith('/delete ')) {
             const fileId = text.replace('/delete ', '');
             await handleDeleteFile(chatId, username, fileId);
+        } else if (text === '/clearcache') {
+            await handleClearCache(chatId, username);
         } else if (text === '/help') {
             await handleHelp(chatId, username);
         } else if (text === '/about') {
@@ -674,39 +814,34 @@ async function getBotInfo() {
     }
 }
 
+// Periodic cleanup function
+async function periodicCleanup() {
+    try {
+        // Clean up old download stats (keep last 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        for (let i = 31; i <= 60; i++) {
+            const oldDate = new Date();
+            oldDate.setDate(oldDate.getDate() - i);
+            const dateKey = oldDate.toISOString().split('T')[0];
+            await redisClient.del(`stats:downloads:${dateKey}`);
+        }
+        
+        console.log('🧹 Periodic cleanup completed');
+    } catch (error) {
+        console.error('Error in periodic cleanup:', error);
+    }
+}
+
 // Main function
 async function main() {
     console.log('🤖 Starting Telegram Uploader Bot...');
     
-    // Connect to database
-    await connectDB();
+    // Connect to Redis
+    await connectRedis();
     
     // Get bot information
     await getBotInfo();
     
-    console.log(`✅ Bot @${bot_info.username} is running!`);
-    console.log(`👑 Admins: ${ADMIN_USERNAMES.join(', ')}`);
-    
-    // Start long polling
-    while (true) {
-        await getUpdates();
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay
-    }
-}
-
-// Handle process termination
-process.on('SIGINT', () => {
-    console.log('\n🛑 Bot stopped by user');
-    process.exit(0);
-});
-
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Start the bot
-main().catch(console.error);
+    console.log(`✅ Bot @${bot_info.username}
